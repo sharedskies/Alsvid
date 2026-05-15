@@ -4,4 +4,4 @@ This repository is an open-source read-only mirror archive. The code is provided
 For documentation, additional information about the the routines, and recent developments visit [Sharedskies software](https://sharedskies.space/software).
 
 ## AstroImageJ
-The opensource Java-based astronomical image and data processor [AstroImageJ](https://astroimagej.com) is a cross-platform versatile companion the command-line tools of Alsvid.
+The opensource Java-based astronomical image and data processor [AstroImageJ](https://astroimagej.com) is a cross-platform versatile companion to the command-line tools of Alsvid.
