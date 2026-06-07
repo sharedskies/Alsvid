@@ -4,6 +4,7 @@ star_temperature=5000.0
 star_name= TIC 172518755
 star_ld1=0.3 
 star_ld2=0.3
+planet_name = TOI 1789.01
 planet_radius=0.042711590932673064 
 planet_temperature=1000.0
 orbit_sax=22.259378121 

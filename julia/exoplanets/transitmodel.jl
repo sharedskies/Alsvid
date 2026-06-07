@@ -1,4 +1,4 @@
-#!/usr/local/bin/julia
+#!/home/john/local/bin/julia
 
 #  transitmodel
 #  
@@ -32,6 +32,12 @@
 #      2025-10-24 Version 1.1
 #        Phase returned from solution of Kepler equation is now -pi to +pi
 #        Working with eccentric orbits
+#      2026-06-06 Version 1.2
+#        Removed dictionary entries that are not used here
+#        Added planet bond albedo to dictionary for future use
+#        Assigned consistent default dictionary values
+#        Added physical constants for future use
+#        Used makie instead of plotly for desktop graphics
 
  
 # Julia Language Notes
@@ -54,10 +60,21 @@
  
 # Add packages this program depends on
 # In julia, use "Pkg.add("package")" to install a missing package
-# This program requires DelimitedFiles, Plots, and PlotlyBase
+# This program requires DelimitedFiles, GLMakie
 
 using DelimitedFiles  # For exporting formatted data files
-using Plots           # For plotting results
+using GLMakie         # For plotting results
+
+# Define constants so that if needed they are globally optimized by the compiler
+
+const earth_radius = 6371.0088  # mean radius in km
+const earth_mass = 5.9722e24    # kg
+const earth_temperature = 288.0 # bolometric mean in kelvin from space
+const au = 149597870.700        # km
+const earth_period = 365.242189 # sidereal year in jd
+const sun_radius = 695700.0     # km 
+const sun_mass = 1.988475e30    # kg
+const sun_temperature = 5772.0  # bolometric photospheric temperature in kelvin
 
 
 # Define functions to be used here
@@ -247,8 +264,14 @@ function read_parameter_file(infile, dictionary)
     end
 
     if occursin("planet_temperature", line)
-      dictionary["planet_temperatue"] = parse(Float64,split(line,"=")[2])
+      dictionary["planet_temperature"] = parse(Float64,split(line,"=")[2])
     end
+
+    if occursin("planet_albedo", line)
+      dictionary["planet_albedo"] = parse(Float64,split(line,"=")[2])
+    end
+    
+    
 
     # Test for orbit entries
 
@@ -299,116 +322,7 @@ function read_parameter_file(infile, dictionary)
     if occursin("orbit_tpa", line)
       dictionary["orbit_tpa"] = parse(Float64,split(line,"=")[2])
     end
-
-
-    # Test for model entries
-
-    if occursin("transit_model_name", line)
-      dictionary["transit_model_name"] = split(line,"=")[2]
-    end
-
-    if occursin("transit_model_t1", line)
-      dictionary["transit_model_t1"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t2", line)
-      dictionary["transit_model_t2"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_tcp", line)
-      dictionary["transit_model_tcp"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t3", line)
-      dictionary["transit_model_t3"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t4", line)
-      dictionary["transit_model_t4"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t5", line)
-      dictionary["transit_model_t5"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t6", line)
-      dictionary["transit_model_t6"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_tcs", line)
-      dictionary["transit_model_tcs"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t7", line)
-      dictionary["transit_model_t7"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_t8", line)
-      dictionary["transit_model_t8"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_dcp", line)
-      dictionary["transit_model_dcp"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_model_dcs", line)
-      dictionary["transit_model_dcs"] = parse(Float64,split(line,"=")[2])
-    end
-
-
-    # Test for observed entries
-
-    if occursin("transit_observed_name", line)
-      dictionary["transit_observed_name"] = split(line,"=")[2]
-    end
-
-    if occursin("transit_observed_t1", line)
-      dictionary["transit_observed_t1"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t2", line)
-      dictionary["transit_observed_t2"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_tcp", line)
-      dictionary["transit_observed_tcp"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t3", line)
-      dictionary["transit_observed_t3"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t4", line)
-      dictionary["transit_observed_t4"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t5", line)
-      dictionary["transit_observed_t5"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t6", line)
-      dictionary["transit_observed_t6"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_tcs", line)
-      dictionary["transit_observed_tcs"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t7", line)
-      dictionary["transit_observed_t7"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_t8", line)
-      dictionary["transit_observed_t8"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_dcp", line)
-      dictionary["transit_observed_dcp"] = parse(Float64,split(line,"=")[2])
-    end
-
-    if occursin("transit_observed_dcs", line)
-      dictionary["transit_observed_dcs"] = parse(Float64,split(line,"=")[2])
-    end
+    
   end 
   return dictionary
 end
@@ -420,9 +334,7 @@ end
 
 # Inputs
 
-  # Star parameters
-  # Planet parameters
-  # Orbit parameters
+  # Star, planet, and orbit parameters as one dictionary
   # Array of apparent separations (km)
   # Array of apparent orbital phases (2 pi)
   
@@ -519,13 +431,11 @@ end
 
 # ###
 
-# Model of limb darkened stellar flux for a transit
+# Model of limb-darkened stellar flux for a transit
 
 # Inputs
 
-  # Star parameters
-  # Planet parameters
-  # Orbit parameters
+  # Star, planet, and orbit parameters as one dictionary
   # Array of apparent separations (km)
   # Array of apparent orbital phases (2 pi)
   
@@ -1206,7 +1116,7 @@ function planet_center(parameters, time_array)
 
   orbit_tpa = parameters["orbit_tpa"]
   orbit_per = parameters["orbit_per"]
-  orbit_ecc  = parameters["orbit_ecc"]
+  orbit_ecc = parameters["orbit_ecc"]
   orbit_omg = parameters["orbit_omg"]
   orbit_sax = parameters["orbit_sax"]
   orbit_inc = parameters["orbit_inc"]
@@ -1237,7 +1147,7 @@ function planet_center(parameters, time_array)
   #   observed_y is perpendicular to x and positive to the north 
   #   observed phase is derived from the eccentric anomaly at each instance 
   
-  if orbit_lan_flag
+  if orbit_lan_flag > 0
     observed_x_array = -planet_x_array.*cos(orbit_lan) .+ planet_y_array.*sin(orbit_lan)
     observed_y_array = -planet_x_array.*sin(orbit_lan) .- planet_y_array*cos(orbit_lan)
     observed_r_array = sqrt.(observed_x_array.*observed_x_array .+ observed_y_array.*observed_y_array)
@@ -1472,7 +1382,7 @@ end
 
 # Outputs
 
-#   system_flux_array: np array with total flux at each time (units of stellar flux)
+#   system_flux_array: total flux at each time (units of stellar flux)
 #   separation_array: separation of planet and star seen by the observer at each time (units of stellar sax)
 #   phase_array: phase of the orbit at each time (units of 2 pi)
 
@@ -1513,82 +1423,40 @@ println("Running ", PROGRAM_FILE, " with arguments ", parmfile, " and ", fluxfil
 # Solar and Earth units are internal so that data are entered relative to them
 # These are placeholder global parameters that may be updated by functions
 
-# The dictionaries are used to hold values for the models
+# The dictionary holds values for the models
 # Each dictionary refers to a class of objects
-# In this version there is only one member of each class
-# Future versions may contain dictionaries for each named item or be replaced by database storage
-
-# Scaling Units
-
-solar_flux = 1.0
-solar_mass = 1.0
-solar_radius = 1.0
-solar_temperature = 1.0
-earth_mass = 1.0
-earth_radius = 1.0
-earth_temperature = 1.0
-earth_orbit_sax = 1.0
-earth_orbit_per = 1.0
 
 # star:  stellar parameters
-#   name: any text name
-#   flux: (surface power/area solar units)
-#   radius: (solar units)
-#   mass: (solar units)
-#   temperature: (solar units)
-#   ld1: linear limb darkening
-#   ld2: quadratic limb darkening
+#   name: any text name [defaults to "TIC"]
+#   flux: (surface power/area solar units) [defaults to 1.0]
+#   radius: (solar units) [defaults to 1.0]
+#   mass: (solar units) [defaults to 1.0]
+#   temperature: (solar units) [defaults to 1.0]
+#   ld1: linear limb darkening [defaults to 0.3]
+#   ld2: quadratic limb darkening [defaults to 0.3]
 
 # planet: planet parameters
-#   name: any text name
-#   radius: (earth)
-#   mass: (earth)
-#   temperature: (earth)
+#   name: any text name [defaults to "TOI"]
+#   radius: (earth) [defaults to 1.0]
+#   mass: (earth) [defaults to 1.0]
+#   temperature: (earth) [defaults to 1.0]
 
 # orbit:  system orbit parameters
-#   name: should match the planet name for futureproof use
-#   sax:  semi-major axis (units of host star radius)
-#   per:  period (days)
-#   inc:  inclination (units of radians)
-#   ecc:  eccentricity defaults to 0
-#   omg:  omega, the argument of the periastron of the orbit (units of radians)
-#   tpa:  time of periastron (units of BJD)
-#   lan_flag: flag to use the longitude of the ascending node if > 0
-#   lan:  longitude of the ascending node (units of radians)
-#     default value is pi
+#   name: should match the planet name for futureproof use [defaults to "TIC"]
+#   sax:  semi-major axis (units of host star radius) [defaults to 10.0]
+#   per:  period (JD) [defaults to 10.0]
+#   inc:  inclination (units of radians) [defaults to 0.0]
+#   ecc:  eccentricity defaults to [defaults to 0.0]
+#   omg:  omega, the argument of the periastron of the orbit (units of radians) [defaults to 1.5 pi]
+#   tpa:  time of periastron (BJD) [defaults to 0.0]
 
-# transit_model: transit events for this model of star, planet, and orbit
-#   name: should match the planet name for futureproof use
-#   t1:  first contact for the ingress of the primary event
-#   t2:  second contact for transit
-#   tcp: center of transit for the primary (planet on star) event
-#   t3:  third contact
-#   t4:  fourth contact for the egress of the primary event
-#   t5:  first contact for the secondary event
-#   t6:  second contact for the secondary event
-#   tcs: center of occulation for the secondary (star on planet) event
-#   t7:  third contact for the secondary event
-#   t8:  fourth contact for the egress of the secondary event
-#   dcp: depth of the primary transit as a fraction of total separated star and planet flux 
-#   dcs: depth of the secondary transit as a fraction of the total separated star and planet flux
+#   Not used for light curve but retained for future use with spectra  
+#     lan_flag: flag to use the longitude of the ascending node if > 0 [defaults to 0]
+#     lan:  longitude of the ascending node (units of radians) [defaults to 0.0]
 
-# transit_observed: transit events observed for the flux being tested
-#   name: should match the planet name for futureproof use
-#   t1:  first contact for the ingress of the primary event
-#   t2:  second contact for transit
-#   tcp: center of transit for the primary (planet on star) event
-#   t3:  third contact
-#   t4:  fourth contact for the egress of the primary event
-#   t5:  first contact for the secondary event
-#   t6:  second contact for the secondary event
-#   tcs: center of occulation for the secondary (star on planet) event
-#   t7:  third contact for the secondary event
-#   t8:  fourth contact for the egress of the secondary event
-#   dcp: depth of the primary transit as a fraction of total separated star and planet flux 
-#   dcs: depth of the secondary transit as a fraction of the total separated star and planet flux
 
-# Create one dictionary as a database of any type for all the parameters
-# Do not use it in  function call when the execution time is critical
+# Create one dictionary as a database for all the parameters
+# Do not use it in a function call when the execution time is critical
 
 parameters = Dict()
 
@@ -1596,26 +1464,15 @@ parameters = Dict()
 
 star = Dict("star_name" => "TIC", "star_flux" => 1.0 , "star_radius" => 1.0, "star_mass" => 1.0, "star_temperature" => 1.0, "star_ld1" => 0.3, "star_ld2" => 0.3)
 
-planet = Dict("planet_name" => "a", "planet_radius" => 0.1, "planet_mass" => 0.001, "planet_temperature" => 1000.0)
+planet = Dict("planet_name" => "TOI", "planet_radius" => 1.0, "planet_mass" => 1.0, "planet_temperature" => 1.0)
 
-orbit = Dict("orbit_name"=> "a", "orbit_sax" =>100.0,  "orbit_per" =>10.0,  "orbit_inc" =>0.1,  "orbit_ecc" =>0.01,  "orbit_omg" =>0.5,  
-  "orbit_tpa" =>2459000.0,  "orbit_lan_flag" => true, "orbit_lan" => 3.14159)
+orbit = Dict("orbit_name"=> "TOI", "orbit_sax" => 10.0,  "orbit_per" =>10.0,  "orbit_inc" =>0.0,  "orbit_ecc" =>0.00,  "orbit_omg" => 1.5*pi,  
+  "orbit_tpa" => 0.0,  "orbit_lan_flag" => 0, "orbit_lan" => 0.0)
 
-transit_model = Dict("transit_model_name"=> "a", "transit_model_t1" => 0.0, "transit_model_t2" => 0.0, 
-  "transit_model_tcp" => 0.0, "transit_model_t3" => 0.0, "transit_model_t4" => 0.0, 
-  "transit_model_t5" => 0.0, "transit_model_t6" => 0.0,  
-  "transit_model_tcs" => 0.0, "transit_model_t7" => 0.0, "transit_model_t8" => 0.0, 
-  "transit_model_dcp" => 0.0, "transit_model_dcs" => 0.0) 
 
-transit_observed = Dict("transit_observed_name"=> "a", "transit_observed_t1" => 0.0, "transit_observed_t2" => 0.0, 
-  "transit_observed_tcp" => 0.0, "transit_observed_t3" => 0.0, "transit_observed_t4" => 0.0, 
-  "transit_observed_t5" => 0.0, "transit_observed_t6" => 0.0,  
-  "transit_observed_tcs" => 0.0, "transit_observed_t7" => 0.0, "transit_observed_t8" => 0.0, 
-  "transit_observed_dcp" => 0.0, "transit_observed_dcs" => 0.0) 
+parameters = merge(parameters, star, planet, orbit)
 
-parameters = merge(parameters, star, planet, orbit, transit_model, transit_observed)
-
-# Read the model parameters file and update the dictionary
+# Read the requested model parameters and update the dictionary
 
 println("Reading the parameter file ", parmfile)
 
@@ -1649,17 +1506,47 @@ println("Preparing plots")
 
 # Plot the observed flux and model
 
-# Set the backend
-#gr()
-plotly()
+# Initialize the figure and axis
+fig = Figure(size = (1200, 900))
+ax = Axis(fig[1, 1], 
+    title = "Model Flux for " * parameters["star_name"],
+    xlabel = "Time (BJD) - " * time_zero_str,
+    ylabel = "Flux"
+)
 
-plot(reduced_time_array, model_system_flux_array, title = "Model Flux",
-label = "Model")
-plot!(reduced_time_array, observed_flux_array, label = "Observed")
-xlabel!("Time (BJD) - "*time_zero_str)
-ylabel!("Flux")
-gui()
-savefig(parmfile_base*"_model_flux.png")
+# Plot the model and observed data
+
+# Plot model and observed data
+m_plot = lines!(ax, reduced_time_array, model_system_flux_array, label = "Model", color = :blue)
+o_plot = scatter!(ax, reduced_time_array, observed_flux_array, label = "Observed",color = :red, markersize = 6)
+
+# Add a legend to the layout
+axislegend(ax)
+
+# Configure tooltips
+# Define a custom tooltip formatter
+#   'plot'     represents the object being hovered
+#   'index'    the data point index,
+#   'position' (x, y, z) coordinates of that point.
+custom_tooltip(plot, index, position) = "Time: $(round(position[1], digits=4))\nFlux: $(round(position[2], digits=4))"
+
+# Apply the custom tooltips only to the observed data points
+o_plot.inspector_label = custom_tooltip
+
+# Turn off inspection entirely on the model line to maximize performance
+m_plot.inspectable = false
+
+# Activate the inspector for the figure to have tooltips
+inspector = DataInspector(fig)
+
+
+# Display the GUI window and save the file
+display(fig) 
+save(parmfile_base * "_model_flux.png", fig)
+
+# For code executed from the command line we need to pause
+println("Return to continue ...")
+readline()
 
 exit()
 
