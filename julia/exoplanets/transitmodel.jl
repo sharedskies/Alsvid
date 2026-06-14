@@ -14,7 +14,7 @@
 #    Explicit outputs:
 #           
 #      Transit file of sampling times and model fluxes
-#      Transit plot (plotly) of comparison and model fluxes at sampling times
+#      Transit plot with Makie of comparison of observed and  model fluxes
 #      
 #    Notes:
 #
@@ -25,7 +25,7 @@
 #      
 #      John Kielkopf (kielkopf@louisville.edu)
 #      MIT License
-#      Copyright 2021, 2025
+#      Copyright 2021, 2025, 2026
 #      
 #      2021-06-29 Version 1.0d
 #        Working with eccentricity = 0.0
@@ -33,11 +33,19 @@
 #        Phase returned from solution of Kepler equation is now -pi to +pi
 #        Working with eccentric orbits
 #      2026-06-06 Version 1.2
-#        Removed dictionary entries that are not used here
+#        Removed dictionary entries that are not used
 #        Added planet bond albedo to dictionary for future use
 #        Assigned consistent default dictionary values
 #        Added physical constants for future use
-#        Used makie instead of plotly for desktop graphics
+#        Makie replaced plotly for desktop graphics
+#      2026-06-14 Version 1.3
+#        Added comments explaining the terms
+#        Tested for consistency against AstroImageJ and Batman
+#        Orbital position calculation and sky projection restructured for clarity
+#        Models a full period rather than the observed window
+#        Provides true anomaly over a full period with correct consistent sign
+#        Exports diagnostic data pairs for plots
+
 
  
 # Julia Language Notes
@@ -298,15 +306,6 @@ function read_parameter_file(infile, dictionary)
     if occursin("orbit_lan", line)
       dictionary["orbit_lan"] = parse(Float64,split(line,"=")[2])
     end
-
-    if occursin("orbit_lan_flag", line)
-      if occursin("true", split(line,"=")[2])
-        dictionary["orbit_lan_flag"] = true
-      end
-      if occursin("false", split(line,"=")[2])
-        dictionary["orbit_lan_flag"] = false
-      end
-    end    
         
     if occursin("orbit_ecc", line)
       dictionary["orbit_ecc"] = parse(Float64,split(line,"=")[2])
@@ -343,7 +342,7 @@ end
   # Array of model fractional flux for a uniform stellar disk 
   #   transiting a uniform star at each time
 
-function star_flux_uniform_model(parameters, apparent_separation_array, apparent_phase_array)
+function star_flux_uniform_model(parameters, apparent_separation_array, apparent_phase_array, apparent_z_array)
 
   # For transit modeling in this routine
   #   separations are in scaled to units of star.radius
@@ -368,9 +367,9 @@ function star_flux_uniform_model(parameters, apparent_separation_array, apparent
   planet_radius = parameters["planet_radius"]
   star_flux  = parameters["star_flux"]
   
-  # Scale the apparent separation array in km to the stellar radius
+  # Scale the apparent separation array to the stellar radius
   
-  z_array = apparent_separation_array ./ star_radius
+  s_array = apparent_separation_array ./ star_radius
   
   # Scale the planet radius to the stellar radius
   # Take the absolute value just in case a negative value is called (allowed by Exofast) 
@@ -378,27 +377,27 @@ function star_flux_uniform_model(parameters, apparent_separation_array, apparent
   p  = abs(planet_radius/star_radius)
   p2 = p*p
           
-  # Condition elements of z_array at the critical junctures
+  # Condition elements of s_array at the critical junctures
   
-  z_array[ isapprox.(z_array, p, atol=1.0e-8) ] = p
-  z_array[ isapprox.(z_array, p - 1.0), atol=1.0e-8 ] = p - 1.0
-  z_array[ isapprox.(z_array, 1.0 - p), atol=1.0e-8 ] = 1.0 - p
-  z_array[ isapprox.(z_array, 0.0), atol=1.0e-8 ] = 0.0
+  s_array[ isapprox.(s_array, p, atol=1.0e-8) ] = p
+  s_array[ isapprox.(s_array, p - 1.0), atol=1.0e-8 ] = p - 1.0
+  s_array[ isapprox.(s_array, 1.0 - p), atol=1.0e-8 ] = 1.0 - p
+  s_array[ isapprox.(s_array, 0.0), atol=1.0e-8 ] = 0.0
   
   # Helper arrays
-  z2_array = z_array .* z_array
+  z2_array = s_array .* s_array
  
   # Mandel and Agol uniform source cases:
-  # p = 0           z_array = [0,   inf)
-  case_0a = isapprox(p, 0.0, atol=1.0e-8) && (z_array .>= 0.0)
-  # p = (0, inf)    z_array = [1 + p, inf)
-  case_0b = (p > 0.0) &&  (z_array .> (1.0 + p))
-  # p = (0, inf)    z_array = (|1 - p|, 1 + p] 
-  case_0c = (p > 0.0) &&  (z_array .> abs(1.0 - p)) &&  (z_array .<= (1.0 + p))
-  # p = (0, inf)    z_array = [0, 1 - p]
-  case_0d = (p > 0.0) &&  (z_array .>= 0.0) && (z_array .<= (1.0 - p))  
-  # p = (0, inf)    z_array = [0, p - 1]
-  case_0e = (p > 0.0) &&  (z_array .>= 0.0) && (z_array .<= (p - 1.0))  
+  # p = 0           s_array = [0,   inf)
+  case_0a = isapprox(p, 0.0, atol=1.0e-8) && (s_array .>= 0.0)
+  # p = (0, inf)    s_array = [1 + p, inf)
+  case_0b = (p > 0.0) &&  (s_array .> (1.0 + p))
+  # p = (0, inf)    s_array = (|1 - p|, 1 + p] 
+  case_0c = (p > 0.0) &&  (s_array .> abs(1.0 - p)) &&  (s_array .<= (1.0 + p))
+  # p = (0, inf)    s_array = [0, 1 - p]
+  case_0d = (p > 0.0) &&  (s_array .>= 0.0) && (s_array .<= (1.0 - p))  
+  # p = (0, inf)    s_array = [0, p - 1]
+  case_0e = (p > 0.0) &&  (s_array .>= 0.0) && (s_array .<= (p - 1.0))  
 
 
   # Evaluate cases for a uniform source
@@ -409,8 +408,8 @@ function star_flux_uniform_model(parameters, apparent_separation_array, apparent
 
   # Case 0b
   # Planet is ingressing or egressing and partly on the disk
-  kappa_0_array = acos( (p2 .- z2_array) ./ ( (2.0*p) .* z_array ) )
-  kappa_1_array = acos( ( (1.0 - p2) .+ z2_array) ./ (2.0 .* z_array) )
+  kappa_0_array = acos( (p2 .- z2_array) ./ ( (2.0*p) .* s_array ) )
+  kappa_1_array = acos( ( (1.0 - p2) .+ z2_array) ./ (2.0 .* s_array) )
   lambda_0_array = p2 .* kappa_0_array .+ kappa_1_array .- sqrt.(z2_array .- 0.25 .* (1.0 .+ z2_array .- p2) .* ( 1.0 .+ z2_array .- p2))
   lambda_0_array = lambda_0_array ./ pi
   lambda_e_array[ case_0b ] = lambda_0_array
@@ -447,7 +446,7 @@ end
   #   transiting a uniform star at each time
 
 
-function star_flux_limb_darkened_model(parameters, apparent_separation_array, apparent_phase_array)
+function star_flux_limb_darkened_model(parameters, apparent_separation_array, apparent_phase_array, apparent_z_array)
 
 
   # For transit modeling in this routine
@@ -477,38 +476,38 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   star_ld1 = parameters["star_ld1"]
   star_ld2 = parameters["star_ld2"]
 
-  # Remove the epoch and put phases on a 0 to 1 interval
+  # Remove the epoch and put phases on a 0 to 1 interval if they are not
   phase_remainder_array = mod.( apparent_phase_array, 1.0 )
   
-  # Scale the unsigned apparent separation array in km to the stellar radius in km
-  z_array = apparent_separation_array ./ star_radius
+  # Scale the unsigned apparent separation array explicitly to the stellar radius 
+  s_array = apparent_separation_array ./ star_radius
 
   # Save how many elements since it is used often
-  nz = length(z_array)
+  ns = length(s_array)
   
   # Scale the planet radius to the stellar radius
   # Take the absolute value just in case a negative value is called (allowed by Exofast) 
   p  = abs(planet_radius / star_radius)
   p2 = p*p
   
-  # Create arrays of p and p2 for broadcast comparisons with the z_array
-  p_array = p .* ones(nz)
-  p2_array = p2 .* ones(nz)
+  # Create arrays of p and p2 for broadcast comparisons with the s_array
+  p_array = p .* ones(ns)
+  p2_array = p2 .* ones(ns)
         
-  # Condition elements of z_array at the critical junctures
-  z_array[ isapprox.(z_array, p, atol=1.0e-8) ] .= p
-  z_array[ isapprox.(z_array, p - 1.0, atol=1.0e-8) ] .= p - 1.0
-  z_array[ isapprox.(z_array, 1.0 - p, atol=1.0e-8) ] .= 1.0 - p
-  z_array[ isapprox.(z_array, 0.0, atol=1.0e-8) ] .= 0.0
+  # Condition elements of s_array at the critical junctures
+  s_array[ isapprox.(s_array, p, atol=1.0e-8) ] .= p
+  s_array[ isapprox.(s_array, p - 1.0, atol=1.0e-8) ] .= p - 1.0
+  s_array[ isapprox.(s_array, 1.0 - p, atol=1.0e-8) ] .= 1.0 - p
+  s_array[ isapprox.(s_array, 0.0, atol=1.0e-8) ] .= 0.0
   
   # These helper arrays require conditioning before broadcast use
   # Mandel and Agol and Exofast use a, b
   # Shporer in the Matlab version uses a, b, q, k0, and k1
   # Collins and Exofast use x1, x2 for similar quantities
          
-  a_array = (z_array .- p) .* (z_array .- p)
-  b_array = (z_array .+ p) .* (z_array .+ p)
-  z2_array = (z_array) .* (z_array)
+  a_array = (s_array .- p) .* (s_array .- p)
+  b_array = (s_array .+ p) .* (s_array .+ p)
+  z2_array = (s_array) .* (s_array)
   q_array = p2 .- z2_array
   q2_array = q_array .* q_array
   n_array = 1.0 .- (1.0 ./ a_array)
@@ -527,14 +526,14 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # Find the normalizing factor for the transit terms in the transit model
   flux_norm_ld = 1.0/(4.0*omega)
     
-  # Initialize the arrays that determine the flux at each element of the z_array
-  lambda_e_array = zeros(nz)
-  lambda_d_array = zeros(nz)
-  eta_d_array = zeros(nz)
+  # Initialize the arrays that determine the flux at each element of the s_array
+  lambda_e_array = zeros(ns)
+  lambda_d_array = zeros(ns)
+  eta_d_array = zeros(ns)
   
   # Define and initialize the Theta (step) function of Mandel and Agol as an array
-  theta_array = zeros(nz)
-  theta_array[ (p .> z_array) ]  .= 1.0
+  theta_array = zeros(ns)
+  theta_array[ (p .> s_array) ]  .= 1.0
 
   # Mandel and Agol (2002) cases
   # The eleven conditions from Mandel and Agol Table 1 
@@ -545,99 +544,99 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   #   and the ( or ) means the value is not allowed at the limit
    
   # In Julia the Mandel and Agol uniform source cases are defined as 
-  #   Boolean bit-arrays for z_array masking. 
+  #   Boolean bit-arrays for s_array masking. 
     
   # No planet, no effect, flux defaults to star out of transit
-  # p = 0           z_array = [0,   inf)
+  # p = 0           s_array = [0,   inf)
   # isapprox(p, 0.0, atol=1.0e-8)
 
   # Before ingress exclusive of contact
-  # p = (0, inf)    z_array = (inf, -1 - p)
+  # p = (0, inf)    s_array = (inf, -1 - p)
   # p > 0.0
-  case_0a = (z_array .<= (-1.0 - p))  
+  case_0a = (s_array .<= (-1.0 - p))  .& (apparent_z_array .> 0.0)
 
   # After egress exclusive of contact
-  # p = (0, inf)    z_array = (1 + p, inf)
+  # p = (0, inf)    s_array = (1 + p, inf)
   # p > 0.0
-  case_0b = (z_array .> (1.0 + p))
+  case_0b = (s_array .> (1.0 + p)) .& (apparent_z_array .> 0.0)
     
   # Fully on disk exclusive of contacts
-  # p = (0, inf)    z_array = (-1 + p, 1 - p)
+  # p = (0, inf)    s_array = (-1 + p, 1 - p)
   # p > 0.0
-  case_0c = (z_array .> (-1.0 + p)) .&  (z_array .<  (1.0 - p))  
+  case_0c = (s_array .> (-1.0 + p)) .&  (s_array .<  (1.0 - p)) .& (apparent_z_array .> 0.0) 
 
   # During  ingress inclusive of contacts
-  # p = (0, inf)    z_array = [-1 - p, -1 + p]
+  # p = (0, inf)    s_array = [-1 - p, -1 + p]
   # p > 0.0
-  case_0d = (z_array .>= (-1.0 - p)) .&  (z_array .<=  (-1.0 + p)) 
+  case_0d = (s_array .>= (-1.0 - p)) .&  (s_array .<=  (-1.0 + p)) .& (apparent_z_array .> 0.0)
   
   # During egress inclusive of contacts (Why absolute value here?)
-  # p = (0, inf)    z_array = [ 1 - p, 1 + p ]
+  # p = (0, inf)    s_array = [ 1 - p, 1 + p ]
   # p > 0.0
-  case_0e = (z_array .>= abs(1.0 - p)) .&  (z_array .<= (1.0 + p))
+  case_0e = (s_array .>= abs(1.0 - p)) .&  (s_array .<= (1.0 + p)).& (apparent_z_array .> 0.0)
 
   # Either ingress or egress
   case_0f = case_0d .| case_0e
 
   # Large planet covering smaller star 
-  # p = (1, inf)    z_array = [1 - p, p - 1]
+  # p = (1, inf)    s_array = [1 - p, p - 1]
   # p > 1.0
-  case_0g =  (z_array .>= 1.0 - p) .& (z_array .<= (p - 1.0)) 
+  case_0g =  (s_array .>= 1.0 - p) .& (s_array .<= (p - 1.0)) .& (apparent_z_array .> 0.0)
     
   # Mandel and Agol case 1: There is no planet or the star is unocculted
-  # p = 0           z_array = [0,   inf)
-  # p = (0, inf)    z_array = [1 + p, inf)
+  # p = 0           s_array = [0,   inf)
+  # p = (0, inf)    s_array = [1 + p, inf)
   # isapprox(p, 0.0, atol=1.0e-8)
-  case_1 = z_array .>= (1.0 + p)
+  case_1 = s_array .>= (1.0 + p)
     
   # Mandel and Agol case 2: Planet on limb of star
-  # p = (0, inf)    z_array = (1/2 + |p - 1/2|, 1 + p) 
+  # p = (0, inf)    s_array = (1/2 + |p - 1/2|, 1 + p) 
   # (p > 0.0)
-  case_2 = (z_array .> 0.5 + abs(p - 0.5)) .& (z_array .< (1.0 + p))
+  case_2 = (s_array .> 0.5 + abs(p - 0.5)) .& (s_array .< (1.0 + p)) .& (apparent_z_array .> 0.0)
 
   # Mandel and Agol case 3: Inside disk not over center
-  # p = (0, 1/2)    z_array = (p, 1 - p)
+  # p = (0, 1/2)    s_array = (p, 1 - p)
   # (p > 0.0) && (p < 0.5)
-  case_3 = (z_array .> p) .& (z_array .< (1.0 - p))
+  case_3 = (s_array .> p) .& (s_array .< (1.0 - p)) .& (apparent_z_array .> 0.0)
   
   # Mandel and Agol case 4: Inside disk not over center touching edge 
-  # p = (0, 1/2)    z_array = 1 - p  
+  # p = (0, 1/2)    s_array = 1 - p  
   # (p > 0.0) && (p < 0.5)
-  case_4 = isapprox.(z_array, (1.0 - p), atol=1.0e-8)
+  case_4 = isapprox.(s_array, (1.0 - p), atol=1.0e-8) .& (apparent_z_array .> 0.0)
     
   # Mandel and Agol case 5: Inside disk touching center
-  # p = (0, 1/2)    z_array = p
+  # p = (0, 1/2)    s_array = p
   # (p > 0.0) && (p < 0.5)  
-  case_5 = isapprox.(z_array, p, atol=1.0e-8)
+  case_5 = isapprox.(s_array, p, atol=1.0e-8) .& (apparent_z_array .> 0.0)
   
   # Mandel and Agol case 6: Planet diameter is star's radius and edge of planet is on star's center
-  # p = 1/2         z_array = 1/2
+  # p = 1/2         s_array = 1/2
   # isapprox(p, 0.5, atol=1.0e-8)
-  case_6 = isapprox.(z_array, 0.5, atol=1.0e-8)
+  case_6 = isapprox.(s_array, 0.5, atol=1.0e-8) .& (apparent_z_array .> 0.0)
     
   # Mandel and Agol case 7: Edge of planet's disk touches stellar center and planet not entirely inside star
-  # p = (1/2, inf)  z_array = p
+  # p = (1/2, inf)  s_array = p
   # p > 0.5
-  case_7 = isapprox.(z_array, p, atol=1.0e-8)
+  case_7 = isapprox.(s_array, p, atol=1.0e-8) .& (apparent_z_array .> 0.0)
   
   # Mandel and Agol case 8: Planet covers center and limb
-  # p = (1/2, inf)  z_array = [|1 - p|, p)
+  # p = (1/2, inf)  s_array = [|1 - p|, p)
   # (p > 0.5)
-  case_8 = (z_array .>= abs(1.0 - p)) .& (z_array .< p)
+  case_8 = (s_array .>= abs(1.0 - p)) .& (s_array .< p) .& (apparent_z_array .> 0.0)
   
   # Mandel and Agol case 9: Planet inside stellar disk and covers center
-  # p = (0, 1)      z_array = (0, 1/2 - |p - 1/2|)
+  # p = (0, 1)      s_array = (0, 1/2 - |p - 1/2|)
   # (p > 0.0) && (p < 1.0)
-  case_9 = (z_array .> 0.0) .& (z_array .< (0.5 - abs(p - 0.5)))
+  case_9 = (s_array .> 0.0) .& (s_array .< (0.5 - abs(p - 0.5))) .& (apparent_z_array .> 0.0)
   
   # Mandel and Agol case 10: Planet concentric with star and entirely within stellar disk
-  # p = (0, 1)      z_array = 0
-  case_10 = (p > 0.0) && (p < 1.0) .& isapprox.(z_array, 0.0, atol=1.0e-8)
+  # p = (0, 1)      s_array = 0
+  case_10 = (p > 0.0) && (p < 1.0) .& isapprox.(s_array, 0.0, atol=1.0e-8) .& (apparent_z_array .> 0.0)
 
   # Mandel and Agol case 11: Planet completely eclipses the star
-  # p = (1, inf)    z_array = [0, p - 1)
+  # p = (1, inf)    s_array = [0, p - 1)
   # p > 1.0
-  case_11 =  (z_array .>= 0.0) .& (z_array .< (p - 1.0))
+  case_11 =  (s_array .>= 0.0) .& (s_array .< (p - 1.0)) .& (apparent_z_array .> 0.0)
 
   # Apply these cases to set flux parameter arrays for quadratic limb darkening
   # Corrections to Mandel and Agol from Exofast and AstroImageJ code are incorporated here
@@ -654,20 +653,20 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   
   select = case_0d .| case_0e .| case_0f
 
-  arg_array = zeros(nz)
-  arg_array[select] .= ( -1.0 .+ p2 .+ z2_array[select]) ./ ( (2.0*p) .* z_array[select] )
-  kappa_0_array = zeros(nz)
+  arg_array = zeros(ns)
+  arg_array[select] .= ( -1.0 .+ p2 .+ z2_array[select]) ./ ( (2.0*p) .* s_array[select] )
+  kappa_0_array = zeros(ns)
   kappa_0_array[select] .= acos.(arg_array[select])
 
-  arg_array = zeros(nz)
-  arg_array[select] .= ( 1.0 .- p2 .+ z2_array[select]) ./ ( 2.0 .* z_array[select] )  
-  kappa_1_array = zeros(nz)
+  arg_array = zeros(ns)
+  arg_array[select] .= ( 1.0 .- p2 .+ z2_array[select]) ./ ( 2.0 .* s_array[select] )  
+  kappa_1_array = zeros(ns)
   kappa_1_array[select] .= acos.(arg_array[select])  
 
-  arg_array = zeros(nz)
+  arg_array = zeros(ns)
   arg_array[select] .= z2_array[select] .- 0.25 .* (1.0 .+ z2_array[select] .- p2) .* (1.0 .+ z2_array[select] .- p2)
 
-  lambda_e_array  = zeros(nz)
+  lambda_e_array  = zeros(ns)
   lambda_e_array[select] .= ( p2 .* kappa_0_array[select] .+ kappa_1_array[select] .- sqrt.(arg_array[select]) ) ./ pi
   
 
@@ -688,7 +687,7 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # There is no planet or the star is unocculted
 
   select = case_1
-  eta_5_array = zeros(nz)
+  eta_5_array = zeros(ns)
   eta_5_array[select] .= 0.
   
 
@@ -696,7 +695,7 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # Planet completely eclipses the star
 
   select = case_11
-  eta_4_array = zeros(nz)
+  eta_4_array = zeros(ns)
   eta_4_array[select] .= 0.5 
 
 
@@ -704,7 +703,7 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # Planet diameter is star's radius and edge of planet is on star's center
 
   select = case_6
-  eta_3_array = zeros(nz)
+  eta_3_array = zeros(ns)
   eta_3_array[select] .= (3.0/32.0)
 
 
@@ -712,7 +711,7 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # Planet inside the stellar disk
 
   select = case_3 .| case_4 .| case_5 .| case_9 .| case_10
-  eta_2_array = zeros(nz)
+  eta_2_array = zeros(ns)
   eta_2_array[select] .= (0.5*p2) .* (p2 .+ (2.0 .* z2_array[select]))
   
 
@@ -722,20 +721,20 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   select = case_2 .| case_7 .| case_8
   eta_2_array[select] .= (0.5*p2) .* (p2 .+ (2.0 .* z2_array[select]))
 
-  arg_array = zeros(nz)
-  arg_array[select] .= ( -1.0 .+ p2 .+ z2_array[select]) ./ ( (2.0*p) .* z_array[select] )
-  kappa_0_array = zeros(nz)
+  arg_array = zeros(ns)
+  arg_array[select] .= ( -1.0 .+ p2 .+ z2_array[select]) ./ ( (2.0*p) .* s_array[select] )
+  kappa_0_array = zeros(ns)
   kappa_0_array[select] .= acos.(arg_array[select])
 
-  arg_array = zeros(nz)
-  arg_array[select] .= ( 1.0 .- p2 .+ z2_array[select]) ./ ( 2.0 .* z_array[select] )  
-  kappa_1_array = zeros(nz)
+  arg_array = zeros(ns)
+  arg_array[select] .= ( 1.0 .- p2 .+ z2_array[select]) ./ ( 2.0 .* s_array[select] )  
+  kappa_1_array = zeros(ns)
   kappa_1_array[select] .= acos.(arg_array[select])  
    
-  eta_1_array = zeros(nz)
-  arg_1_array = zeros(nz)
-  arg_2_array = zeros(nz)
-  arg_3_array = zeros(nz)
+  eta_1_array = zeros(ns)
+  arg_1_array = zeros(ns)
+  arg_2_array = zeros(ns)
+  arg_3_array = zeros(ns)
 
   arg_1_array[select] .= kappa_1_array[select] .+ 2.0 .* eta_2_array[select] .* kappa_0_array[select]
   arg_2_array[select] .=  sqrt.( (1.0 .- a_array[select]) .* (b_array[select] .- 1.0) ) 
@@ -745,12 +744,12 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
 
   # Calculate the elliptic integrals for lambda_1
 
-  k2_array = ones(nz)
-  k2_array[select] .= (1.0 .- a_array[select]) ./ ( (4.0*p) .* z_array[select] )
+  k2_array = ones(ns)
+  k2_array[select] .= (1.0 .- a_array[select]) ./ ( (4.0*p) .* s_array[select] )
 
-  ellint1_array = zeros(nz)
-  ellint2_array = zeros(nz)
-  ellint3_array = zeros(nz)
+  ellint1_array = zeros(ns)
+  ellint2_array = zeros(ns)
+  ellint3_array = zeros(ns)
   arg_1_array, arg_2_array = ellint( k2_array[select] )
   arg_3_array = ellint3(n_array[select], k2_array[select])
   ellint1_array[select] .= arg_1_array
@@ -763,24 +762,24 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   
   select = case_2
   
-  arg_1_array = zeros(nz)
+  arg_1_array = zeros(ns)
   arg_1_array[select]  .= ( 1.0 .- b_array[select]) .* ( 2.0 .* b_array[select] .+ a_array[select] .- 3.0 )
   
   arg_1_array[select]  .=  arg_1_array[select] .- 3.0 .* q_array[select] .* (b_array[select] .- 2.0)
   arg_1_array[select]  .=  arg_1_array[select] .* ellint1_array[select]
 
-  arg_2_array = zeros(nz)
-  arg_2_array[select]  .= (4.0*p) .* z_array[select] .* (z2_array[select] .+ (7.0*p2 - 4.0) )
+  arg_2_array = zeros(ns)
+  arg_2_array[select]  .= (4.0*p) .* s_array[select] .* (z2_array[select] .+ (7.0*p2 - 4.0) )
   arg_2_array[select]  .= arg_2_array[select] .* ellint2_array[select]  
   
-  arg_3_array = zeros(nz)
+  arg_3_array = zeros(ns)
   arg_3_array[select]  .=  -3.0 .* q_array[select] .* ellint3_array[select] ./ a_array[select] 
   
-  arg_4_array = zeros(nz)    
+  arg_4_array = zeros(ns)    
   arg_4_array[select]  .= arg_1_array[select] .+ arg_2_array[select] .+ arg_3_array[select] 
 
-  lambda_1_array = zeros(nz)
-  lambda_1_array[select] .=  (1.0/(9.0*pi)) .* arg_4_array[select] ./ sqrt.(p .* z_array[select])
+  lambda_1_array = zeros(ns)
+  lambda_1_array[select] .=  (1.0/(9.0*pi)) .* arg_4_array[select] ./ sqrt.(p .* s_array[select])
          
 
   # Cases 3, 9 
@@ -788,30 +787,30 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
 
   select = case_3 .| case_9
 
-  k2_array = ones(nz)
-  k2_array[select] .= (1.0 .- a_array[select]) ./ ( (4.0*p) .* z_array[select] )
-  ellint1_array = zeros(nz)
-  ellint2_array = zeros(nz)
-  ellint3_array = zeros(nz)
+  k2_array = ones(ns)
+  k2_array[select] .= (1.0 .- a_array[select]) ./ ( (4.0*p) .* s_array[select] )
+  ellint1_array = zeros(ns)
+  ellint2_array = zeros(ns)
+  ellint3_array = zeros(ns)
   arg_1_array, arg_2_array = ellint(1.0 ./ k2_array[select])
   arg_3_array = ellint3(nb_array[select], (1.0 ./ k2_array[select]))  
   ellint1_array[select] .= arg_1_array
   ellint2_array[select] .= arg_2_array  
   ellint3_array[select] .= arg_3_array
     
-  arg_1_array = zeros(nz)
+  arg_1_array = zeros(ns)
   arg_1_array[select] .= (1.0 .- 5.0 .* z2_array[select] .+ p2) .+ q2_array[select]
   arg_1_array[select] .= arg_1_array[select] .* ellint1_array[select]
 
-  arg_2_array = zeros(nz)
+  arg_2_array = zeros(ns)
   arg_2_array[select] .= (1.0 .- a_array[select]) .* (z2_array[select] .+ 7.0*p2 .- 4.0) 
   arg_2_array[select] .= arg_2_array[select] .* ellint2_array[select]   
 
-  arg_3_array = zeros(nz)
+  arg_3_array = zeros(ns)
   arg_3_array[select] .= -3.0 .* q_array[select] ./ a_array[select] 
   arg_3_array[select] .= arg_3_array[select] .* ellint3_array[select]
   
-  lambda_2_array = zeros(nz)
+  lambda_2_array = zeros(ns)
   lambda_2_array[select] .= arg_1_array[select] .+ arg_2_array[select]  .+ arg_3_array[select] 
   lambda_2_array[select] .= lambda_2_array[select]  ./ sqrt.(1.0 .- a_array[select]) 
   lambda_2_array[select] = (2.0/(9.0*pi)) .* lambda_2_array[select]  
@@ -825,15 +824,15 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   # Calculate the elliptic integrals for lambda_3 
   # Corrected typographical error in paper by  1/2k -> 1/2p  
   
-  q_array = zeros(nz)
+  q_array = zeros(ns)
   q_array[select] .= (0.5/p) 
   ellint1_array, ellint2_array = ellint(q_array)
   
-  arg_1_array = zeros(nz)
+  arg_1_array = zeros(ns)
   arg_1_array[select] .= 1.0/3.0 .+ (2.0*p2 - 1.0)*16.0*p/(9.0*pi) .* ellint2_array[select]
-  arg_2_array = zeros(nz)
+  arg_2_array = zeros(ns)
   arg_2_array[select] .= ( (1.0 - 4.0*p2)*(3.0 - 8.0*p2)/(9.0*p*pi) ) .* ellint1_array[select]
-  lambda_3_array = zeros(nz)
+  lambda_3_array = zeros(ns)
   lambda_3_array[select] .= arg_1_array[select] .- arg_2_array[select]
 
 
@@ -842,10 +841,10 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   
   select = case_5
 
-  q_array_4 = (2.0*p) .* ones(nz)
+  q_array_4 = (2.0*p) .* ones(ns)
   ellint1_array_4, ellint2_array_4 = ellint(q_array_4)
   
-  lambda_4_array = zeros(nz)
+  lambda_4_array = zeros(ns)
   lambda_4_array_arg_1 =  4.0*(2.0*p2 - 1.0) .* ellint2_array_4
   lambda_4_array_arg_2 = (1.0 - 4.0*p2) .* ellint1_array_4 
   lambda_4_array_arg_3 = lambda_4_array_arg_1 .+ lambda_4_array_arg_2
@@ -857,9 +856,9 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
 
   select = case_4
   
-  lambda_5_array_arg_1 = (2.0/(3.0*pi)) * acos((1.0 - 2.0*p))  .* ones(nz) 
-  lambda_5_array_arg_2 = ((4.0/(9.0*pi))*(3.0 + 2.0*p - 8.0*p2)) .* ones(nz)
-  lambda_5_array = zeros(nz)
+  lambda_5_array_arg_1 = (2.0/(3.0*pi)) * acos((1.0 - 2.0*p))  .* ones(ns) 
+  lambda_5_array_arg_2 = ((4.0/(9.0*pi))*(3.0 + 2.0*p - 8.0*p2)) .* ones(ns)
+  lambda_5_array = zeros(ns)
   lambda_5_array[select] .= lambda_5_array_arg_1[select] .- lambda_5_array_arg_2[select]
     
 
@@ -869,8 +868,8 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
 
   select = case_10
 
-  lambda_6_array_arg_1 = -((2.0/3.0)*(1.0 - p2)*sqrt(1.0 - p2)) .* ones(nz)
-  lambda_6_array = zeros(nz)
+  lambda_6_array_arg_1 = -((2.0/3.0)*(1.0 - p2)*sqrt(1.0 - p2)) .* ones(ns)
+  lambda_6_array = zeros(ns)
   lambda_6_array[select] .= lambda_6_array_arg_1[select]
   
   
@@ -881,8 +880,8 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
   
   select = case_6
   
-  lambda_7_array_arg_1 = (1.0/3.0 - 4.0/(9.0*pi)) .* ones(nz)
-  lambda_7_array = zeros(nz)
+  lambda_7_array_arg_1 = (1.0/3.0 - 4.0/(9.0*pi)) .* ones(ns)
+  lambda_7_array = zeros(ns)
   lambda_7_array[select] .= lambda_7_array_arg_1[select]
 
   
@@ -891,12 +890,12 @@ function star_flux_limb_darkened_model(parameters, apparent_separation_array, ap
 
   select = case_11
 
-  lambda_8_array_arg_1 = ones(nz)
-  lambda_8_array = zeros(nz)
+  lambda_8_array_arg_1 = ones(ns)
+  lambda_8_array = zeros(ns)
   lambda_8_array[select] .= lambda_8_array_arg_1[select]
   
-  lambda_8_array = zeros(nz)
-  lambda_8_array[select] .= ones(nz)[select]
+  lambda_8_array = zeros(ns)
+  lambda_8_array[select] .= ones(ns)[select]
 
 
   # Evaluate the flux case by case using these lambda and eta values
@@ -984,20 +983,21 @@ end
 
 # Inputs
 
-  # Star properties
-  # Planet properties
-  # Separation of planet from star
-  # Phase at each separation  
+  # Star, planet, and orbit properties
+  # Apparent separationd of planet from star
+  # Apparent phases of orbit
+  # Apparent line of sight distanced  
+  # True separations of planet from star
   
 # Output
 
   # Array of planet fluxes at each position
 
 
-function planet_flux_model(parameters, apparent_separation_array, apparent_phase_array, planet_to_star_array)
+function planet_flux_model(parameters, apparent_separation_array, apparent_phase_array, apparent_z_array, planet_to_star_array)
   
   # This is a placeholder for the transit flux from the planet
-  # It assumes zero Bond albedo and no thermal emission
+  # As is, it assumes zero Bond albedo and no thermal emission
   
   planet_flux_array = zeros(length(apparent_separation_array))
   
@@ -1030,33 +1030,53 @@ end
 # astrodynamics systems. 
 # CEAS Space J 10, 115-123 (2018). 
 # https://doi.org/10.1007/s12567-017-0170-8
+# Modified by Gemini Pro to ensure bounded output
+
 
 function solve_kepler(mean_anom_array, orbit_ecc)
   maximum_iterations = 100
   tolerance = 1.0e-8
 
+  # Force mean anomalies into [-pi, pi]
   mean_anom_array = rem2pi.(mean_anom_array, RoundNearest)
-  last_array = mean_anom_array .+ orbit_ecc*sign.(sin.(mean_anom_array))
   
-  # Iterative solution for all samples in the mean_anom_array
-  for this_step in range(1, length=maximum_iterations)    
+  # Added element-wise 
+  last_array = mean_anom_array .+ orbit_ecc .* sign.(sin.(mean_anom_array))
+  
+  # Iterative solution
+  for this_step in 1:maximum_iterations    
     solution_array = last_array .- orbit_ecc.*sin.(last_array) .- mean_anom_array
     derivative_array = 1.0 .- orbit_ecc.*cos.(last_array)    
     new_array = last_array .- solution_array./derivative_array
     
-    # Test for convergence when all the array elements have converged
+    # Test for convergence
     test_array = isapprox.(new_array, last_array, atol=tolerance)    
     if all(test_array) 
-      return new_array
+      # Ensure the final converged eccentric anomaly is strictly bounded [-pi, pi]
+      return rem2pi.(new_array, RoundNearest)
     end
     
-    # Not yet converged, so repeat again
     last_array = new_array
   end  
+  
   println("The Kepler inversion did not converge.")
-    
-  return last_array
+  return rem2pi.(last_array, RoundNearest)
 end
+
+
+# Find the true anomaly from the eccentric anomaly for a full orbit
+# Preserve the quadrant of the orbit from -pi to +pi
+function get_true_anomaly(ecc_anom_array, orbit_ecc)
+    # y corresponds to the sine component (scaled by semi-minor axis factor)
+    y = sqrt(1.0 - orbit_ecc^2) .* sin.(ecc_anom_array)
+    
+    # x corresponds to the cosine component
+    x = cos.(ecc_anom_array) .- orbit_ecc
+    
+    # atan(y, x) preserves the quadrant from -pi to +pi
+    return atan.(y, x) 
+end
+
 
 # ###
 
@@ -1073,9 +1093,8 @@ end
 #     per: period (days)
 #     inc: inclination (units of radians)
 #     ecc: eccentricity defaults to 0
-#     omg: omega, the argument of the periastron of the orbit (units of radians)
-#     tpa: time of periastron (units of BJD)
-#     lan_flag: Boolean to use the longitude of the ascending node
+#     omg: omega, the argument of the periapsis of the orbit (units of radians)
+#     tpa: time of periapsis (units of BJD)
 #     lan: longitude of the ascending node (units of radians)
 #       default value is pi
 
@@ -1092,7 +1111,7 @@ function planet_center(parameters, time_array)
    
   # In EXOFAST 
   #   ecc is 0 if not specified
-  #   omg is the argument of periastron of the star's orbit in radians
+  #   omg is the argument of periapsis of the star's orbit in radians
   #   omg_* is typically quoted from RV
   #   is required if e is specified
   #   is assumed to be pi/2 if e not specified
@@ -1108,59 +1127,114 @@ function planet_center(parameters, time_array)
   #      where impact parameter is in units of star.radius
   #    Employed in transitModel
       
-  # Karen: meananom = (2.0*PI*(1.0 + (bjd[i] - tp)/P)) % (2.0*PI)
+  # Karen Collins: meananom = (2.0*PI*(1.0 + (bjd[i] - tp)/P)) % (2.0*PI)
   # mean_anom_array = np.mod( 2.0*np.pi*(1.0 + (time_array - orbit_tpa)/orbit_period), 2.0*np.pi)
   # np.mod is an alias for np.remainder
 
-  # Fix local orbit parameters from the parameters dictionary
+  # Orbit parameters are held in the parameters dictionary
+  
+  # Reference plane is tangent to the celestial sphere
+  #   It is normal to the vector to the Sun
+  # Reference direction is in the reference plane 
+  #   Right ascension is on x decreasing to (+x), i.e. to west
+  #   Declination is on y increasing to (+y), i.e. to north
+  # Parameter orbit_inc is the inclination of the orbit plane 
+  #   Measure in radians from the reference plane
+  #   Equivalent to angle between the normals of the orbit and reference planes
+  #   Equal to 0 when the orbit is in the plane of the sky with no possiblity of a transit
+  #   Equal to pi/2 when the orbit appears to cross the center of the star
+  #   More than pi/2 when the orbit crosses above center (+y)
+  #   Less than pi/2 when the orbit crosses below center (-y)
+  # Parameter orbit_omg is the argument of periapsis (small omega) 
+  #   Measure in radians in the orbit plane from the ascending node
+  #   Equal to 0 when periapsis is at the ascending node
+  #   Equal to pi when periapsis is at the decending node
+  #   For an orbit in the plane of the sky it increases counter-clockwise
+  # Parameter orbit_lan is the longitude of the ascending node (big omega)
+  #   Measure in radians in the reference plane 
+  #   From the reference direction 
+  #   Counter-clockwise to the direction of the ascending node
+  #   Same sense as small omega when the orbit is in the reference plane 
+  #   Equal to 0 or 2 pi  if the ascending node is toward (+x)
+  #   Equal to -pi if the ascending node is toward (-x)
+  #   With pi/2 inclination and orbit_lan 0
+  #     planet moves from (+x) to (-x) across the star with no (y) motion
+  #   With pi/2 inclination and orbit_lan pi 
+  #     planet moves from (-x) to (+x) across the star with no (y) motion
+  #   With 0 inclination and 0 omega
+  #     planet moves from bottom to top, i.e. from (-y) to (+y) with no (x) motion
+  #   With 0 inclination and pi omega
+  #     planet moves from top to bottom, i.e. from (+y) to (-y) with no (x) motion 
 
-  orbit_tpa = parameters["orbit_tpa"]
-  orbit_per = parameters["orbit_per"]
-  orbit_ecc = parameters["orbit_ecc"]
-  orbit_omg = parameters["orbit_omg"]
-  orbit_sax = parameters["orbit_sax"]
-  orbit_inc = parameters["orbit_inc"]
-  orbit_lan = parameters["orbit_lan"]
-  orbit_lan_flag = parameters["orbit_lan_flag"]
 
-  # Find the anomalies for the time series treating zero eccentricity as a special case
-  mean_anom_array = 2.0.*pi.*mod.( (1.0 .+ (time_array .- orbit_tpa)./orbit_per), 1.0)
 
-  # Put them in a -pi to +pi range
-  mean_anom_array = rem2pi.(mean_anom_array, RoundNearest)
+  orbit_tpa = parameters["orbit_tpa"] # time of periapsis (d) sets the reference time for the mean anomaly
+  orbit_per = parameters["orbit_per"] # period of the orbit (d) from one periapsis to the next
+  orbit_ecc = parameters["orbit_ecc"] # eccentricity of the orbit (focus offset / sax)
+  orbit_omg = parameters["orbit_omg"] # argument of periapsis (small omega radians ccw in plane of orbit)
+  orbit_sax = parameters["orbit_sax"] # semimajor axis of ellipse (sets scale, any unit)
+  orbit_inc = parameters["orbit_inc"] # orbit plane normal to reference direction (radians)
+  orbit_lan = parameters["orbit_lan"] # longitude of ascending node in the plane of reference
 
+  # Find the mean anomaly in radians for the time series 
+  mean_anom_array = (2pi/orbit_per).*(time_array .- orbit_tpa)
+
+  write_data_file("time-mean-anom.dat", time_array, mean_anom_array)
+
+  # Find the true anomalies for these mean anomalies by solving the Kepler equation when needed 
   if isapprox(orbit_ecc, 0.0, atol=1.0e-3)  
     true_anom_array = mean_anom_array    
   else
+    # Find the eccentric anomalies
     ecc_anom_array = solve_kepler(mean_anom_array, orbit_ecc) 
-    true_anom_array = 2.0 .* atan.(sqrt.((1.0 + orbit_ecc) ./ (1.0 - orbit_ecc)) .* atan.(0.5 .* ecc_anom_array))
+    
+    # Find corresponding true anomalies 
+    true_anom_array = get_true_anomaly(ecc_anom_array, orbit_ecc) 
+           
   end
   
-  # Find the position of the planet in its orbit in km
-  planet_r_array = orbit_sax*(1.0 - orbit_ecc*orbit_ecc) ./ (1.0 .+ orbit_ecc .* cos.(true_anom_array))
-  planet_x_array = -planet_r_array .* cos.(true_anom_array .+ orbit_omg)
-  planet_y_array = -planet_r_array .* sin.(true_anom_array .+ orbit_omg) .* cos(orbit_inc)
+  write_data_file("time-true-anom.dat", time_array, true_anom_array)
   
-  # Rotate by the longitude of the ascending node measured in the sky plane if known
-  # This will be the orientation as seen by the observer
-  #   observed_x is parallel to the line of apsides
-  #   observed_y is perpendicular to x and positive to the north 
-  #   observed phase is derived from the eccentric anomaly at each instance 
+  # Find the position of the planet in units of (orbit_sax)
+  # Coordinates in the 2D orbital plane
+  orbit_r_array = orbit_sax*(1.0 - orbit_ecc*orbit_ecc) ./ (1.0 .+ orbit_ecc .* cos.(true_anom_array))
+  orbit_x_array = orbit_r_array .* cos.(true_anom_array) 
+  orbit_y_array = orbit_r_array .* sin.(true_anom_array)  
   
-  if orbit_lan_flag > 0
-    observed_x_array = -planet_x_array.*cos(orbit_lan) .+ planet_y_array.*sin(orbit_lan)
-    observed_y_array = -planet_x_array.*sin(orbit_lan) .- planet_y_array*cos(orbit_lan)
-    observed_r_array = sqrt.(observed_x_array.*observed_x_array .+ observed_y_array.*observed_y_array)
-  else
-    observed_r_array = sqrt.(planet_x_array.*planet_x_array .+ planet_y_array.*planet_y_array)  
-  end
-      
-  # Observed separations are given in (km)
-  # Phases of the planetary positions are given in (2 pi)
+  # First rotation by the argument of periapsis around the z-axis normal to the orbit plane
+  
+  x1_array = orbit_x_array .* cos(orbit_omg) - orbit_y_array .* sin(orbit_omg)
+  y1_array = orbit_x_array .* sin(orbit_omg) + orbit_y_array .* cos(orbit_omg)
+  z1_array = 0.0 .* orbit_y_array
+  
+  # Second rotation by the inclination  around the new x-axis
+  
+  x2_array = x1_array
+  y2_array = y1_array .* cos(orbit_inc)
+  z2_array = y1_array .* sin(orbit_inc)
+  
+  # Third rotation by the longitude of the ascending node around the new z-axis
+    
+  observed_x_array = x2_array.*cos(orbit_lan) .- y2_array .* sin(orbit_lan)
+  observed_y_array = x2_array.*sin(orbit_lan) .+ y2_array .* cos(orbit_lan)
+  observed_z_array = z2_array
+  observed_r_array = sqrt.(observed_x_array.*observed_x_array .+ observed_y_array.*observed_y_array)
+        
+  # Observed separations are given in (orbit_sax)
+  # Phases of the planetary positions are given in (2 pi), e.g. 0 to 1 for a full period
   # Retain the full phase so that multiple epochs may be treated in one array
-  observed_phase_array = 1.0 .+ (time_array .- orbit_tpa)./orbit_per
+  observed_phase_array = (time_array .- orbit_tpa)./orbit_per
   
-  return observed_r_array, observed_phase_array, planet_r_array
+  
+  # Diagnostic files
+  
+  write_data_file("observed-x-y.dat", observed_x_array, observed_y_array)
+  write_data_file("observed-t-x.dat", time_array, observed_x_array)
+  write_data_file("observed-t-y.dat", time_array, observed_y_array)
+  write_data_file("observed-t-z.dat", time_array, observed_z_array)
+  write_data_file("observed-t-phase.dat", time_array, observed_phase_array)
+  
+  return observed_r_array, observed_phase_array, observed_z_array, orbit_r_array
 
 end  
 
@@ -1346,7 +1420,7 @@ end
 
 # ###
 
-# Model of relative limb-darkened flux versus time for a star and planet system
+# Model limb-darkened transit versus time for a star and planet system
 
 # Inputs 
 
@@ -1372,35 +1446,35 @@ end
 #       inc == pi/2 motion is transverse on the sky and sense is indeterminant for transit observations alone
 #       position angle is measured anticlockwise on the sky and increases with direct motion
 #     ecc: orbital eccentricity defaults to 0
-#     omg: orbital omega, the argument of the periastron of the orbit (units of radians)
+#     omg: orbital omega, the argument of the periapsis of the orbit (units of radians)
 #       assumed to be PI/2 if e is 0.0
 #       omega_* is typically quoted from RV where it is omega_planet + PI
-#     tpa: time of periastron (units of BJD)
-#     lan_flag: Boolean to use the longitude of the ascending node
+#     tpa: time of periapsis (units of BJD)
 #     lan: longitude of the ascending node (units of radians)
 #       default value is pi
 
 # Outputs
 
-#   system_flux_array: total flux at each time (units of stellar flux)
+#   system_flux_array: total flux at each time (units of stellar flux) with planet flux to be added
 #   separation_array: separation of planet and star seen by the observer at each time (units of stellar sax)
 #   phase_array: phase of the orbit at each time (units of 2 pi)
+#   radial_velocity: to be added and is currently available in the observed_z_array by forward differencing
 
-function transit_flux(parameters, time_array)
+function transit_model(parameters, time_array)
      
   # For times in the array find the apparent separation and transit phase
-  apparent_separation_array, apparent_phase_array, planet_to_star_array  = planet_center(parameters, time_array)
+  observed_r_array, observed_phase_array, observed_z_array, orbit_r_array = planet_center(parameters, time_array)
   
   # Fractional flux with limb darkening and the undarkened flux as a benefit 
-  star_flux_array, star_flux_uniform_array  = star_flux_limb_darkened_model(parameters, apparent_separation_array, apparent_phase_array)
+  star_flux_array, star_flux_uniform_array  = star_flux_limb_darkened_model(parameters, observed_r_array, observed_phase_array, observed_z_array)
           
   # Contribution to the flux from the planet itself
-  planet_flux_array = planet_flux_model(parameters, apparent_separation_array, apparent_phase_array, planet_to_star_array)
+  planet_flux_array = planet_flux_model(parameters, observed_r_array, observed_phase_array, observed_z_array, orbit_r_array)
   
   # Add star and planet
   system_flux_array = star_flux_array .+ planet_flux_array
               
-  return system_flux_array, apparent_separation_array, apparent_phase_array
+  return system_flux_array, observed_r_array, observed_phase_array
 
 end
 
@@ -1447,12 +1521,9 @@ println("Running ", PROGRAM_FILE, " with arguments ", parmfile, " and ", fluxfil
 #   per:  period (JD) [defaults to 10.0]
 #   inc:  inclination (units of radians) [defaults to 0.0]
 #   ecc:  eccentricity defaults to [defaults to 0.0]
-#   omg:  omega, the argument of the periastron of the orbit (units of radians) [defaults to 1.5 pi]
-#   tpa:  time of periastron (BJD) [defaults to 0.0]
-
-#   Not used for light curve but retained for future use with spectra  
-#     lan_flag: flag to use the longitude of the ascending node if > 0 [defaults to 0]
-#     lan:  longitude of the ascending node (units of radians) [defaults to 0.0]
+#   omg:  omega, the argument of the periapsis of the orbit (units of radians) [defaults to 1.5 pi]
+#   tpa:  time of periapsis (BJD) [defaults to 0.0]
+#   lan:  longitude of the ascending node
 
 
 # Create one dictionary as a database for all the parameters
@@ -1467,7 +1538,7 @@ star = Dict("star_name" => "TIC", "star_flux" => 1.0 , "star_radius" => 1.0, "st
 planet = Dict("planet_name" => "TOI", "planet_radius" => 1.0, "planet_mass" => 1.0, "planet_temperature" => 1.0)
 
 orbit = Dict("orbit_name"=> "TOI", "orbit_sax" => 10.0,  "orbit_per" =>10.0,  "orbit_inc" =>0.0,  "orbit_ecc" =>0.00,  "orbit_omg" => 1.5*pi,  
-  "orbit_tpa" => 0.0,  "orbit_lan_flag" => 0, "orbit_lan" => 0.0)
+  "orbit_tpa" => 0.0,  "orbit_lan" => pi)
 
 
 parameters = merge(parameters, star, planet, orbit)
@@ -1482,25 +1553,31 @@ parameters = read_parameter_file(parmfile, parameters)
 
 println("Reading the observed flux array ", fluxfile)
 
-time_array, observed_flux_array = read_data_file(fluxfile)  
+observed_time_array, observed_flux_array = read_data_file(fluxfile)
 
-# Run the model
+# Create a model time array of one period at 200 second TESS cadence
+model_period = parameters["orbit_per"]
+model_cadence = 200.0/86400.0
+model_n_times = trunc(Int64, model_period/model_cadence)
+model_start_time = observed_time_array[1] - model_period/4.0
+model_time_array = [model_start_time + (i - 1) * model_cadence for i in 1:model_n_times] 
 
-model_system_flux_array, model_separation_array, model_phase_array = transit_flux(parameters, time_array)
+# Run the model 
 
-# observed_transit_events = find_transit_events(parameters, time_array, 
-#   model_system_flux_array, model_separation_array, model_phase_array) 
+model_flux_array, model_separation_array, model_phase_array = transit_model(parameters, model_time_array)
 
-# Save the model flux
+
+# Save the model time and flux 
 
 parmfile_base = split(parmfile, ".")[1]
 outfile = parmfile_base*"_model_flux.dat"
 
-time_zero = trunc(time_array[1])
-reduced_time_array = time_array .- time_zero
+time_zero = trunc(observed_time_array[1])
+model_reduced_time_array = model_time_array .- time_zero
+observed_reduced_time_array = observed_time_array .- time_zero
 time_zero_str = string(Int(time_zero))
 
-write_data_file(outfile, reduced_time_array, model_system_flux_array)
+write_data_file(outfile, model_time_array, model_flux_array)
 println("Done for now")
 println("Preparing plots")
 
@@ -1517,8 +1594,8 @@ ax = Axis(fig[1, 1],
 # Plot the model and observed data
 
 # Plot model and observed data
-m_plot = lines!(ax, reduced_time_array, model_system_flux_array, label = "Model", color = :blue)
-o_plot = scatter!(ax, reduced_time_array, observed_flux_array, label = "Observed",color = :red, markersize = 6)
+m_plot = lines!(ax, model_reduced_time_array, model_flux_array, label = "Model", color = :blue)
+o_plot = scatter!(ax, observed_reduced_time_array, observed_flux_array, label = "Observed",color = :red, markersize = 6)
 
 # Add a legend to the layout
 axislegend(ax)
